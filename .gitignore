@@ -3,6 +3,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+data/data_road/
+data/vgg/
+data/gtFine_trainvaltest/
+data/*video*
+data/VID*
+
+data/vgg16.npy
+
 # C extensions
 *.so
 

@@ -10,7 +10,8 @@ import re
 import random
 import numpy as np
 import os.path
-import scipy.misc
+from PIL import Image
+import imageio
 import shutil
 import zipfile
 import time
@@ -105,8 +106,8 @@ def gen_batch_function(data_folder, image_shape):
 			for image_file in image_paths[batch_i:batch_i+batch_size]:
 				gt_image_file = label_paths[os.path.basename(image_file)]
 				# Re-size to image_shape
-				image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
-				gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
+				image = np.array(Image.open(image_file).resize((image_shape[1], image_shape[0])))
+				gt_image = np.array(Image.open(gt_image_file).resize((image_shape[1], image_shape[0])))
 
 				# Create "one-hot-like" labels by class
 				gt_bg = np.all(gt_image == background_color, axis=2)
@@ -132,21 +133,30 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
 	:return: Output for for each test image
 	"""
 	for image_file in glob(os.path.join(data_folder, 'image_2', '*.png')):
-		image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
+		image = np.array(Image.open(image_file).resize((image_shape[1], image_shape[0])))
 
 		# Run inference
 		im_softmax = sess.run(
 			[tf.nn.softmax(logits)],
 			{keep_prob: 1.0, image_pl: [image]})
+		# print('=========softmax===============')
+		# print(im_softmax)
+		# print('========SEGMENTATION===========')
 		# Splice out second column (road), reshape output back to image_shape
-		im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+		im_softmax1 = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+		im_softmax2 = im_softmax[0][:, 0].reshape(image_shape[0], image_shape[1])
 		# If road softmax > 0.5, prediction is road
-		segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
+		segmentation_road = (im_softmax1 > 0.5).reshape(image_shape[0], image_shape[1], 1)
+		segmentation_bg   = (im_softmax2 > 0.5).reshape(image_shape[0], image_shape[1], 1)
+		# print(segmentation)
 		# Create mask based on segmentation to apply to original image
-		mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
-		mask = scipy.misc.toimage(mask, mode="RGBA")
-		street_im = scipy.misc.toimage(image)
-		street_im.paste(mask, box=None, mask=mask)
+		mask = np.dot(segmentation_bg, np.array([[0, 255, 0, 127]]))
+		street_im = np.where(segmentation_road, image, mask)
+		# mask = mask.reshape(image_shape[0], image_shape[1])
+		# mask = Image.fromarray(mask, mode="RGBA")
+		# street_im = Image.fromarray(image)
+		# street_im.paste(mask, mask=mask)
+		# street_im = Image.fromarray(street_im)
 
 		yield os.path.basename(image_file), np.array(street_im)
 
@@ -173,4 +183,4 @@ def save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_p
 	image_outputs = gen_test_output(
 		sess, logits, keep_prob, input_image, os.path.join(data_dir, 'data_road/testing'), image_shape)
 	for name, image in image_outputs:
-		scipy.misc.imsave(os.path.join(output_dir, name), image)
+		imageio.imwrite(os.path.join(output_dir, name), image)
